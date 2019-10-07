@@ -87,15 +87,21 @@ def user_delete(context, data_dict):
     return _no_permissions(context, msg)
 
 rememberer_name = None
+# Singleton SAML client.  Avoids a KeyError during Logout.
+# See https://github.com/DataShades/ckanext-saml2/issues/112
+client = None
 
 
 def delete_cookies():
     """Logout."""
     global rememberer_name
+    global client
     if rememberer_name is None:
         plugins = p.toolkit.request.environ['repoze.who.plugins']
         saml_plugin = plugins.get('saml2auth')
-        rememberer_name = saml_plugin.rememberer_name
+        if client is None:
+          client = plugins.get('saml2auth')
+        rememberer_name = client.rememberer_name
     base.response.delete_cookie(rememberer_name)
     # We seem to end up with an extra cookie so kill this too
     domain = p.toolkit.request.environ['HTTP_HOST']
@@ -576,6 +582,7 @@ class Saml2Plugin(p.SingletonPlugin):
 
     def logout(self):
         """Logout definition."""
+        global client
         environ = p.toolkit.request.environ
 
         userobj = p.toolkit.c.userobj
@@ -591,7 +598,8 @@ class Saml2Plugin(p.SingletonPlugin):
 
         subject_id = environ["repoze.who.identity"]['repoze.who.userid']
         name_id = unserialise_nameid(subject_id)
-        client = environ['repoze.who.plugins']["saml2auth"]
+        if client is None:
+            client = environ['repoze.who.plugins']["saml2auth"]
 
         # Taken from saml2.client:global_logout but forces
         # HTTP-Redirect binding.
